@@ -412,6 +412,7 @@ jobs:
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           if command -v sdkmanager >/dev/null 2>&1; then
             yes | sdkmanager --licenses || true
+            sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1" || true
           fi
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -419,7 +420,7 @@ jobs:
       - name: Build Debug APK
         run: |
           chmod +x ./gradlew || true
-          ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
+          ./gradlew assembleDebug --stacktrace --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: OBS-Mobile-Debug-APK
