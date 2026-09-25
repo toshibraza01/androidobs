@@ -297,27 +297,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-      - name: Install NDK and CMake
+      - name: Set up Android SDK Environment
         run: |
-          sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          if command -v sdkmanager >/dev/null 2>&1; then
+            yes | sdkmanager --licenses || true
+          fi
+      - uses: gradle/actions/setup-gradle@v4
       - name: Build Debug APK with Gradle
         run: |
-          if [ -d "android-project" ]; then cd android-project; fi
+          if [ -d "android-project" ] && [ -f "android-project/build.gradle.kts" ]; then
+            cd android-project
+          fi
+          if [ ! -f "./gradlew" ] || [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version 8.4 || true
+          fi
           chmod +x ./gradlew || true
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: OBS-Mobile-Debug-APK
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            android-project/app/build/outputs/apk/debug/app-debug.apk`, 'ghw')}
+            **/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn`, 'ghw')}
                     className="text-emerald-400 hover:underline flex items-center gap-1"
                   >
                     {copiedCmd === 'ghw' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -332,27 +340,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-      - name: Install NDK and CMake
+      - name: Set up Android SDK Environment
         run: |
-          sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          if command -v sdkmanager >/dev/null 2>&1; then
+            yes | sdkmanager --licenses || true
+          fi
+      - uses: gradle/actions/setup-gradle@v4
       - name: Build Debug APK with Gradle
         run: |
-          if [ -d "android-project" ]; then cd android-project; fi
+          if [ -d "android-project" ] && [ -f "android-project/build.gradle.kts" ]; then
+            cd android-project
+          fi
+          if [ ! -f "./gradlew" ] || [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version 8.4 || true
+          fi
           chmod +x ./gradlew || true
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: OBS-Mobile-Debug-APK
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            android-project/app/build/outputs/apk/debug/app-debug.apk`}
+            **/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn`}
                 </pre>
               </div>
             </div>

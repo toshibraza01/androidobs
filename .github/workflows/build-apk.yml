@@ -16,32 +16,40 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Accept Android Licenses & Setup NDK
+      - name: Set up Android SDK Environment
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          if command -v sdkmanager >/dev/null 2>&1; then
+            yes | sdkmanager --licenses || true
+          fi
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build Debug APK with Gradle
         run: |
-          if [ -d "android-project" ]; then
+          if [ -d "android-project" ] && [ -f "android-project/build.gradle.kts" ]; then
             cd android-project
           fi
+
+          if [ ! -f "./gradlew" ] || [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version 8.4 || true
+          fi
           chmod +x ./gradlew || true
-          gradle assembleDebug --stacktrace || ./gradlew assembleDebug --stacktrace
+
+          ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OBS-Mobile-Debug-APK
           path: |
-            app/build/outputs/apk/debug/*.apk
-            android-project/app/build/outputs/apk/debug/*.apk
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
