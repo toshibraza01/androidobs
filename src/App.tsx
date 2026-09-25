@@ -3,6 +3,13 @@ import { Header } from './components/Header';
 import { CanvasPreview } from './components/CanvasPreview';
 import { AudioMixerDock } from './components/AudioMixerDock';
 import { SceneList } from './components/SceneList';
+import { ControlsDock } from './components/ControlsDock';
+import { StatusBar } from './components/StatusBar';
+import { SettingsModal } from './components/SettingsModal';
+import { SourcePropertiesModal } from './components/SourcePropertiesModal';
+import { StreamChatDock } from './components/StreamChatDock';
+import { ContextMenu } from './components/ContextMenu';
+import { StudioModeControls } from './components/StudioModeControls';
 import { RtmpTelemetryConsole } from './components/RtmpTelemetryConsole';
 import { AndroidCodeExplorer } from './components/AndroidCodeExplorer';
 import { MobileFrame } from './components/MobileFrame';
@@ -20,17 +27,36 @@ export default function App() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [settings, setSettings] = useState<StreamSettings>(() => storageService.loadSettings());
 
+  // Audio Volumes
   const [micVolume, setMicVolume] = useState(1.0);
   const [sysVolume, setSysVolume] = useState(0.8);
+
+  // Hardware devices
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isScreenActive, setIsScreenActive] = useState(false);
+  const [isVirtualCam, setIsVirtualCam] = useState(false);
 
+  // Stream & Recording state
   const [streamState, setStreamState] = useState<StreamState>('idle');
   const [isRecording, setIsRecording] = useState(false);
   const [liveDuration, setLiveDuration] = useState('00:00:00');
+
+  // OBS Workstation Modes & Docks
+  const [isStudioMode, setIsStudioMode] = useState(false);
+  const [showChat, setShowChat] = useState(true);
+  const [transitionType, setTransitionType] = useState('Fade');
+  const [transitionDuration, setTransitionDuration] = useState(300);
+  const [tbarPosition, setTbarPosition] = useState(0);
+
+  // Modals & Context Menus (Matching Reference Images 1, 3, 5)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
+  const [propertiesSource, setPropertiesSource] = useState<SourceItem | null>(null);
   const [isBuildApkOpen, setIsBuildApkOpen] = useState(false);
 
-  // Sync scenes to storage
+  const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number; sourceId: string | null } | null>(null);
+
+  // Sync scenes to local storage
   useEffect(() => {
     storageService.saveScenes(scenes);
   }, [scenes]);
@@ -43,7 +69,7 @@ export default function App() {
     storageService.saveSettings(settings);
   }, [settings]);
 
-  // Subscribe to RTMP state
+  // Subscribe to RTMP simulator state
   useEffect(() => {
     const unsub = rtmpService.subscribeState((st) => {
       setStreamState(st);
@@ -51,7 +77,7 @@ export default function App() {
     return unsub;
   }, []);
 
-  // Live timer interval
+  // Live broadcast duration timer
   useEffect(() => {
     let timer: number;
     if (streamState === 'live') {
@@ -65,8 +91,9 @@ export default function App() {
   }, [streamState]);
 
   const activeScene = scenes.find(s => s.id === activeSceneId) || scenes[0];
+  const selectedSource = activeScene.sources.find(s => s.id === selectedSourceId) || null;
 
-  // Camera Toggle
+  // Toggle Camera
   const handleToggleCamera = async () => {
     if (isCameraActive) {
       compositor.stopCamera();
@@ -77,7 +104,7 @@ export default function App() {
     }
   };
 
-  // Screen Toggle (MediaProjection simulation)
+  // Toggle Screen Capture
   const handleToggleScreen = async () => {
     if (isScreenActive) {
       compositor.stopScreenCapture();
@@ -91,7 +118,7 @@ export default function App() {
     }
   };
 
-  // Stream Toggle
+  // Toggle Stream
   const handleToggleStream = async () => {
     audioMixer.resumeContext();
     if (streamState === 'live' || streamState === 'handshaking') {
@@ -101,7 +128,7 @@ export default function App() {
     }
   };
 
-  // Record Toggle (MediaRecorder)
+  // Toggle Recording
   const handleToggleRecord = () => {
     audioMixer.resumeContext();
     if (isRecording) {
@@ -113,6 +140,11 @@ export default function App() {
         setIsRecording(true);
       }
     }
+  };
+
+  // Virtual Camera Toggle
+  const handleToggleVirtualCam = () => {
+    setIsVirtualCam(!isVirtualCam);
   };
 
   // Scene Operations
@@ -151,25 +183,57 @@ export default function App() {
     }
   };
 
+  const handleDuplicateScene = (sceneId: string) => {
+    const sourceScene = scenes.find(s => s.id === sceneId);
+    if (!sourceScene) return;
+    const newId = `scene-${Date.now()}`;
+    const duplicated: SceneItem = {
+      id: newId,
+      name: `${sourceScene.name} (Copy)`,
+      sources: sourceScene.sources.map(s => ({
+        ...s,
+        id: `source-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        transform: { ...s.transform }
+      }))
+    };
+    setScenes([...scenes, duplicated]);
+    setActiveSceneId(newId);
+  };
+
+  // Source Operations
   const handleAddSource = (type: SourceType) => {
     const newSourceId = `source-${Date.now()}`;
     let name = 'New Layer';
-    let transform: SourceTransform = { x: 20, y: 20, width: 60, height: 60, rotation: 0, opacity: 1, zIndex: activeScene.sources.length + 1 };
+    let transform: SourceTransform = {
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 50,
+      rotation: 0,
+      opacity: 1,
+      zIndex: activeScene.sources.length + 1
+    };
     let properties: SourceItem['properties'] = {};
 
     if (type === 'camera') {
-      name = 'PIP Camera';
-      transform = { x: 65, y: 60, width: 30, height: 35, rotation: 0, opacity: 1, zIndex: activeScene.sources.length + 1 };
+      name = 'Video Capture (Camera)';
+      transform = { x: 62, y: 55, width: 35, height: 40, rotation: 0, opacity: 1, zIndex: activeScene.sources.length + 1 };
       properties = { facingMode: 'user', chromaKey: false };
     } else if (type === 'screen') {
-      name = 'Screen Feed';
+      name = 'Display Capture';
+      transform = { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1 };
+    } else if (type === 'demo_game') {
+      name = 'Media Source';
       transform = { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1 };
     } else if (type === 'text') {
-      name = 'Lower Third';
-      transform = { x: 10, y: 80, width: 40, height: 8, rotation: 0, opacity: 1, zIndex: activeScene.sources.length + 1 };
-      properties = { text: '🔴 STREAMING LIVE ON OBS MOBILE', textColor: '#ffffff', textBgColor: 'rgba(0,0,0,0.85)', fontSize: 22 };
+      name = 'Title (Lower Third)';
+      transform = { x: 5, y: 82, width: 45, height: 10, rotation: 0, opacity: 1, zIndex: activeScene.sources.length + 1 };
+      properties = { text: 'OBS MOBILE LIVE STREAM', textColor: '#ffffff', textBgColor: '#e11d48' };
+    } else if (type === 'image') {
+      name = 'Watermark';
+      transform = { x: 5, y: 5, width: 18, height: 12, rotation: 0, opacity: 0.9, zIndex: activeScene.sources.length + 1 };
     } else if (type === 'color_bars') {
-      name = 'SMPTE Color Bars';
+      name = 'Color Source (SMPTE)';
       transform = { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1, zIndex: 1 };
     }
 
@@ -183,107 +247,150 @@ export default function App() {
       properties
     };
 
-    const updated = scenes.map(s => {
-      if (s.id === activeSceneId) {
-        return { ...s, sources: [...s.sources, newSource] };
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return { ...sc, sources: [...sc.sources, newSource] };
       }
-      return s;
+      return sc;
     });
 
-    setScenes(updated);
+    setScenes(updatedScenes);
     setSelectedSourceId(newSourceId);
   };
 
-  const handleUpdateSourceTransform = (sourceId: string, transform: Partial<SourceTransform>) => {
-    setScenes(prev => prev.map(s => {
-      if (s.id !== activeSceneId) return s;
-      return {
-        ...s,
-        sources: s.sources.map(src => {
-          if (src.id !== sourceId) return src;
-          return { ...src, transform: { ...src.transform, ...transform } };
-        })
-      };
-    }));
-  };
-
-  const handleUpdateSourceProperty = (sourceId: string, property: string, value: unknown) => {
-    setScenes(prev => prev.map(s => {
-      if (s.id !== activeSceneId) return s;
-      return {
-        ...s,
-        sources: s.sources.map(src => {
-          if (src.id !== sourceId) return src;
-          if (property === 'opacity') {
-            return { ...src, transform: { ...src.transform, opacity: value as number } };
-          }
-          return { ...src, properties: { ...src.properties, [property]: value } };
-        })
-      };
-    }));
-  };
-
-  const handleToggleSourceVisible = (sourceId: string) => {
-    setScenes(prev => prev.map(s => {
-      if (s.id !== activeSceneId) return s;
-      return {
-        ...s,
-        sources: s.sources.map(src => {
-          if (src.id !== sourceId) return src;
-          return { ...src, visible: !src.visible };
-        })
-      };
-    }));
-  };
-
-  const handleToggleSourceLock = (sourceId: string) => {
-    setScenes(prev => prev.map(s => {
-      if (s.id !== activeSceneId) return s;
-      return {
-        ...s,
-        sources: s.sources.map(src => {
-          if (src.id !== sourceId) return src;
-          return { ...src, locked: !src.locked };
-        })
-      };
-    }));
-  };
-
-  const handleMoveSourceOrder = (sourceId: string, direction: 'up' | 'down') => {
-    setScenes(prev => prev.map(s => {
-      if (s.id !== activeSceneId) return s;
-      const sources = [...s.sources].sort((a, b) => a.transform.zIndex - b.transform.zIndex);
-      const idx = sources.findIndex(src => src.id === sourceId);
-      if (idx === -1) return s;
-      if (direction === 'up' && idx < sources.length - 1) {
-        const tempZ = sources[idx].transform.zIndex;
-        sources[idx].transform.zIndex = sources[idx + 1].transform.zIndex;
-        sources[idx + 1].transform.zIndex = tempZ;
-      } else if (direction === 'down' && idx > 0) {
-        const tempZ = sources[idx].transform.zIndex;
-        sources[idx].transform.zIndex = sources[idx - 1].transform.zIndex;
-        sources[idx - 1].transform.zIndex = tempZ;
-      }
-      return { ...s, sources };
-    }));
-  };
-
   const handleDeleteSource = (sourceId: string) => {
-    setScenes(prev => prev.map(s => {
-      if (s.id !== activeSceneId) return s;
-      return {
-        ...s,
-        sources: s.sources.filter(src => src.id !== sourceId)
-      };
-    }));
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return { ...sc, sources: sc.sources.filter(s => s.id !== sourceId) };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
     if (selectedSourceId === sourceId) {
       setSelectedSourceId(null);
     }
   };
 
+  const handleDuplicateSource = (sourceId: string) => {
+    const src = activeScene.sources.find(s => s.id === sourceId);
+    if (!src) return;
+    const newSource: SourceItem = {
+      ...src,
+      id: `source-${Date.now()}`,
+      name: `${src.name} (Copy)`,
+      transform: { ...src.transform, x: src.transform.x + 4, y: src.transform.y + 4, zIndex: src.transform.zIndex + 1 }
+    };
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return { ...sc, sources: [...sc.sources, newSource] };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
+    setSelectedSourceId(newSource.id);
+  };
+
+  const handleToggleSourceVisible = (sourceId: string) => {
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return {
+          ...sc,
+          sources: sc.sources.map(s => s.id === sourceId ? { ...s, visible: !s.visible } : s)
+        };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
+  };
+
+  const handleToggleSourceLocked = (sourceId: string) => {
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return {
+          ...sc,
+          sources: sc.sources.map(s => s.id === sourceId ? { ...s, locked: !s.locked } : s)
+        };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
+  };
+
+  const handleUpdateSourceTransform = (sourceId: string, transform: Partial<SourceTransform>) => {
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return {
+          ...sc,
+          sources: sc.sources.map(s => {
+            if (s.id === sourceId) {
+              return { ...s, transform: { ...s.transform, ...transform } };
+            }
+            return s;
+          })
+        };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
+  };
+
+  const handleReorderSource = (sourceId: string, direction: 'up' | 'down') => {
+    const src = activeScene.sources.find(s => s.id === sourceId);
+    if (!src) return;
+    const delta = direction === 'up' ? 1 : -1;
+    handleUpdateSourceTransform(sourceId, { zIndex: Math.max(0, src.transform.zIndex + delta) });
+  };
+
+  const handleUpdateSourceProperties = (sourceId: string, properties: Partial<SourceItem['properties']>) => {
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return {
+          ...sc,
+          sources: sc.sources.map(s => {
+            if (s.id === sourceId) {
+              return { ...s, properties: { ...s.properties, ...properties } };
+            }
+            return s;
+          })
+        };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
+  };
+
+  const handleUpdateSourceName = (sourceId: string, name: string) => {
+    const updatedScenes = scenes.map(sc => {
+      if (sc.id === activeSceneId) {
+        return {
+          ...sc,
+          sources: sc.sources.map(s => (s.id === sourceId ? { ...s, name } : s))
+        };
+      }
+      return sc;
+    });
+    setScenes(updatedScenes);
+  };
+
+  // Open Properties Modal for source
+  const handleOpenSourceProperties = (source: SourceItem) => {
+    setPropertiesSource(source);
+    setIsPropertiesOpen(true);
+  };
+
+  // Open Context Menu on right click
+  const handleOpenContextMenu = (e: React.MouseEvent, sourceId: string | null) => {
+    e.preventDefault();
+    setContextMenuPos({
+      x: Math.min(window.innerWidth - 240, e.clientX),
+      y: Math.min(window.innerHeight - 300, e.clientY),
+      sourceId
+    });
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-100 font-sans select-none">
-      {/* 3-Zone Top Navigation Contract */}
+    <div className="flex flex-col h-screen w-screen bg-[#14151b] text-neutral-100 overflow-hidden font-sans select-none">
+      {/* 1. Authentic OBS Window Title Bar & Menu Bar (Reference 2 & 4) */}
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -293,15 +400,27 @@ export default function App() {
         onToggleRecord={handleToggleRecord}
         liveDuration={liveDuration}
         onOpenBuildApk={() => setIsBuildApkOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        showChat={showChat}
+        onToggleChat={() => setShowChat(!showChat)}
+        isStudioMode={isStudioMode}
+        onToggleStudioMode={() => setIsStudioMode(!isStudioMode)}
       />
 
-      {/* Main Viewport Content Area */}
-      <main className="flex-1 p-3 md:p-4 overflow-y-auto">
+      {/* Main Workspace Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Dockable Stream Chat (Matches Reference 4) */}
+        {currentTab === 'studio' && showChat && (
+          <StreamChatDock isOpen={showChat} onClose={() => setShowChat(false)} />
+        )}
+
+        {/* Studio Director Mode (Matches Reference 2 & 4) */}
         {currentTab === 'studio' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full">
-            {/* Left Col (8 cols): Canvas Live Compositor + Audio Mixer */}
-            <div className="lg:col-span-8 flex flex-col gap-4 h-full min-h-[520px]">
-              <div className="flex-1 min-h-[340px]">
+          <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#181921]">
+            {/* TOP HALF: Interactive Canvas Viewport (or Dual Monitor if in Studio Mode) */}
+            <div className="flex-1 flex overflow-hidden border-b border-[#2b2d3a]">
+              {/* Left Monitor: PREVIEW (Editable) */}
+              <div className="flex-1 flex flex-col h-full overflow-hidden">
                 <CanvasPreview
                   scene={activeScene}
                   selectedSourceId={selectedSourceId}
@@ -311,10 +430,75 @@ export default function App() {
                   isScreenActive={isScreenActive}
                   onToggleCamera={handleToggleCamera}
                   onToggleScreen={handleToggleScreen}
+                  onOpenProperties={() => {
+                    if (selectedSource) handleOpenSourceProperties(selectedSource);
+                  }}
+                  onContextMenu={handleOpenContextMenu}
+                  isProgram={false}
                 />
               </div>
 
-              {/* Hardware Audio Mixer Dock */}
+              {/* Studio Mode Center Transition Bar (when Studio Mode enabled) */}
+              {isStudioMode && (
+                <StudioModeControls
+                  onTransition={() => {
+                    // Flash transition
+                  }}
+                  onCut={() => {
+                    // Quick cut
+                  }}
+                  transitionType={transitionType}
+                  durationMs={transitionDuration}
+                  faderPosition={tbarPosition}
+                  onFaderChange={setTbarPosition}
+                />
+              )}
+
+              {/* Right Monitor: PROGRAM (Clean Live Output) */}
+              {isStudioMode && (
+                <div className="flex-1 flex flex-col h-full overflow-hidden">
+                  <CanvasPreview
+                    scene={activeScene}
+                    selectedSourceId={null}
+                    onSelectSource={() => {}}
+                    onUpdateSourceTransform={() => {}}
+                    isCameraActive={isCameraActive}
+                    isScreenActive={isScreenActive}
+                    onToggleCamera={() => {}}
+                    onToggleScreen={() => {}}
+                    onOpenProperties={() => {}}
+                    onContextMenu={() => {}}
+                    isProgram={true}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* BOTTOM HALF: The 5 Iconic OBS Dock Panels (Matches Reference 2) */}
+            <div className="h-56 bg-[#16171f] p-2 flex gap-2 shrink-0 overflow-x-auto">
+              {/* 1. Scenes Dock + 2. Sources Dock + 3. Scene Transitions Dock */}
+              <SceneList
+                scenes={scenes}
+                activeSceneId={activeSceneId}
+                selectedSourceId={selectedSourceId}
+                onSelectScene={handleSelectScene}
+                onSelectSource={setSelectedSourceId}
+                onAddScene={handleAddScene}
+                onDeleteScene={handleDeleteScene}
+                onAddSource={handleAddSource}
+                onDeleteSource={handleDeleteSource}
+                onToggleSourceVisible={handleToggleSourceVisible}
+                onToggleSourceLocked={handleToggleSourceLocked}
+                onReorderSource={handleReorderSource}
+                onDuplicateScene={handleDuplicateScene}
+                onOpenSourceProperties={handleOpenSourceProperties}
+                transitionType={transitionType}
+                onTransitionTypeChange={setTransitionType}
+                transitionDuration={transitionDuration}
+                onTransitionDurationChange={setTransitionDuration}
+              />
+
+              {/* 4. Audio Mixer Dock */}
               <AudioMixerDock
                 micVolume={micVolume}
                 sysVolume={sysVolume}
@@ -327,67 +511,126 @@ export default function App() {
                   audioMixer.setSysVolume(vol);
                 }}
               />
-            </div>
 
-            {/* Right Col (4 cols): Scenes & Sources Layer Manager */}
-            <div className="lg:col-span-4 flex flex-col gap-4">
-              <SceneList
-                scenes={scenes}
-                activeSceneId={activeSceneId}
-                selectedSourceId={selectedSourceId}
-                onSelectScene={handleSelectScene}
-                onSelectSource={setSelectedSourceId}
-                onAddScene={handleAddScene}
-                onDeleteScene={handleDeleteScene}
-                onAddSource={handleAddSource}
-                onToggleSourceVisible={handleToggleSourceVisible}
-                onToggleSourceLock={handleToggleSourceLock}
-                onMoveSourceOrder={handleMoveSourceOrder}
-                onDeleteSource={handleDeleteSource}
-                onUpdateSourceProperty={handleUpdateSourceProperty}
+              {/* 5. Controls Dock */}
+              <ControlsDock
+                streamState={streamState}
+                isRecording={isRecording}
+                isVirtualCam={isVirtualCam}
+                isStudioMode={isStudioMode}
+                onToggleStream={handleToggleStream}
+                onToggleRecord={handleToggleRecord}
+                onToggleVirtualCam={handleToggleVirtualCam}
+                onToggleStudioMode={() => setIsStudioMode(!isStudioMode)}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onOpenBuildApk={() => setIsBuildApkOpen(true)}
               />
             </div>
           </div>
         )}
 
+        {/* Mobile Device Simulation Rig Tab */}
         {currentTab === 'mobile_rig' && (
-          <MobileFrame
-            scene={activeScene}
-            selectedSourceId={selectedSourceId}
-            onSelectSource={setSelectedSourceId}
-            onUpdateSourceTransform={handleUpdateSourceTransform}
-            isCameraActive={isCameraActive}
-            isScreenActive={isScreenActive}
-            onToggleCamera={handleToggleCamera}
-            onToggleScreen={handleToggleScreen}
-            streamState={streamState}
-            onToggleStream={handleToggleStream}
-            micVolume={micVolume}
-            sysVolume={sysVolume}
-            onMicVolumeChange={(v) => {
-              setMicVolume(v);
-              audioMixer.setMicVolume(v);
-            }}
-            onSysVolumeChange={(v) => {
-              setSysVolume(v);
-              audioMixer.setSysVolume(v);
-            }}
-          />
+          <div className="flex-1 overflow-y-auto bg-[#181921] p-6 flex justify-center items-center">
+            <MobileFrame
+              scene={activeScene}
+              selectedSourceId={selectedSourceId}
+              onSelectSource={setSelectedSourceId}
+              onUpdateSourceTransform={handleUpdateSourceTransform}
+              isCameraActive={isCameraActive}
+              isScreenActive={isScreenActive}
+              onToggleCamera={handleToggleCamera}
+              onToggleScreen={handleToggleScreen}
+              streamState={streamState}
+              onToggleStream={handleToggleStream}
+              micVolume={micVolume}
+              sysVolume={sysVolume}
+              onMicVolumeChange={(v) => {
+                setMicVolume(v);
+                audioMixer.setMicVolume(v);
+              }}
+              onSysVolumeChange={(v) => {
+                setSysVolume(v);
+                audioMixer.setSysVolume(v);
+              }}
+            />
+          </div>
         )}
 
+        {/* RTMP Telemetry Console Tab */}
         {currentTab === 'rtmp_telemetry' && (
-          <RtmpTelemetryConsole
-            settings={settings}
-            onUpdateSettings={setSettings}
-          />
+          <div className="flex-1 overflow-y-auto bg-[#181921]">
+            <RtmpTelemetryConsole
+              settings={settings}
+              onUpdateSettings={setSettings}
+            />
+          </div>
         )}
 
+        {/* Android NDK Core Architecture Tab */}
         {currentTab === 'architecture' && (
-          <AndroidCodeExplorer onOpenBuildApk={() => setIsBuildApkOpen(true)} />
+          <div className="flex-1 overflow-y-auto bg-[#181921]">
+            <AndroidCodeExplorer onOpenBuildApk={() => setIsBuildApkOpen(true)} />
+          </div>
         )}
-      </main>
+      </div>
 
-      {/* APK Build & Export Modal */}
+      {/* Bottom Status Bar (Matches Reference 2 & 4) */}
+      <StatusBar
+        streamState={streamState}
+        isRecording={isRecording}
+        liveDuration={liveDuration}
+        fps={settings.fps}
+        bitrateKbps={settings.videoBitrateKbps}
+      />
+
+      {/* Settings Modal (Matches Reference 1) */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSaveSettings={setSettings}
+      />
+
+      {/* Source Properties Modal (Matches Reference 3) */}
+      <SourcePropertiesModal
+        isOpen={isPropertiesOpen}
+        onClose={() => {
+          setIsPropertiesOpen(false);
+          setPropertiesSource(null);
+        }}
+        source={propertiesSource || selectedSource}
+        onUpdateSourceProperties={handleUpdateSourceProperties}
+        onUpdateSourceName={handleUpdateSourceName}
+      />
+
+      {/* Right-Click Context Menu (Matches Reference 5) */}
+      {contextMenuPos && (
+        <ContextMenu
+          x={contextMenuPos.x}
+          y={contextMenuPos.y}
+          onClose={() => setContextMenuPos(null)}
+          source={activeScene.sources.find(s => s.id === contextMenuPos.sourceId) || selectedSource}
+          onUpdateTransform={(t) => {
+            const sid = contextMenuPos.sourceId || selectedSourceId;
+            if (sid) handleUpdateSourceTransform(sid, t);
+          }}
+          onOpenProperties={() => {
+            const s = activeScene.sources.find(s => s.id === contextMenuPos.sourceId) || selectedSource;
+            if (s) handleOpenSourceProperties(s);
+          }}
+          onRemoveSource={() => {
+            const sid = contextMenuPos.sourceId || selectedSourceId;
+            if (sid) handleDeleteSource(sid);
+          }}
+          onDuplicateSource={() => {
+            const sid = contextMenuPos.sourceId || selectedSourceId;
+            if (sid) handleDuplicateSource(sid);
+          }}
+        />
+      )}
+
+      {/* APK Build Modal */}
       <BuildApkModal
         isOpen={isBuildApkOpen}
         onClose={() => setIsBuildApkOpen(false)}

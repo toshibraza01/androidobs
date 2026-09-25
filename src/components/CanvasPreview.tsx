@@ -1,5 +1,22 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Camera, Monitor, Grid, Maximize2, RotateCcw, Eye, ShieldAlert } from 'lucide-react';
+import {
+  Camera,
+  Monitor,
+  Grid,
+  Maximize2,
+  RotateCcw,
+  Eye,
+  Sliders,
+  Settings,
+  RefreshCw,
+  Play,
+  Pause,
+  MousePointer,
+  Globe,
+  Video,
+  Type,
+  Image as ImageIcon
+} from 'lucide-react';
 import { SceneItem, SourceItem, SourceTransform } from '../types/obs';
 import { compositor } from '../services/compositor';
 
@@ -12,6 +29,9 @@ interface CanvasPreviewProps {
   isScreenActive: boolean;
   onToggleCamera: () => void;
   onToggleScreen: () => void;
+  onOpenProperties?: () => void;
+  onContextMenu?: (e: React.MouseEvent, sourceId: string | null) => void;
+  isProgram?: boolean;
 }
 
 export const CanvasPreview: React.FC<CanvasPreviewProps> = ({
@@ -22,229 +42,330 @@ export const CanvasPreview: React.FC<CanvasPreviewProps> = ({
   isCameraActive,
   isScreenActive,
   onToggleCamera,
-  onToggleScreen
+  onToggleScreen,
+  onOpenProperties,
+  onContextMenu,
+  isProgram = false
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const [showSafeGuides, setShowSafeGuides] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragMode, setDragMode] = useState<'move' | 'resize-br' | 'resize-tl'>('move');
-  const [dragStart, setDragStart] = useState<{ mouseX: number; mouseY: number; initialX: number; initialY: number; initialW: number; initialH: number } | null>(null);
+  const [dragMode, setDragMode] = useState<'move' | 'nw' | 'ne' | 'se' | 'sw' | 'n' | 's' | 'e' | 'w'>('move');
+  const [dragStart, setDragStart] = useState<{
+    mouseX: number;
+    mouseY: number;
+    initialX: number;
+    initialY: number;
+    initialW: number;
+    initialH: number;
+  } | null>(null);
+
+  const [isPlayingMedia, setIsPlayingMedia] = useState(true);
+  const [mediaTime, setMediaTime] = useState(8);
 
   // Initialize compositor with canvas
   useEffect(() => {
-    if (canvasRef.current) {
+    if (canvasRef.current && !isProgram) {
       compositor.setCanvas(canvasRef.current);
       compositor.setScene(scene);
       compositor.setSelectedSource(selectedSourceId);
       compositor.startRenderLoop();
     }
-    return () => {
-      compositor.stopRenderLoop();
-    };
-  }, []);
+  }, [isProgram]);
 
-  // Update scene in compositor
   useEffect(() => {
-    compositor.setScene(scene);
-  }, [scene]);
+    if (!isProgram) {
+      compositor.setScene(scene);
+    }
+  }, [scene, isProgram]);
 
-  // Update selected source
   useEffect(() => {
-    compositor.setSelectedSource(selectedSourceId);
-  }, [selectedSourceId]);
+    if (!isProgram) {
+      compositor.setSelectedSource(selectedSourceId);
+    }
+  }, [selectedSourceId, isProgram]);
 
   const selectedSource = scene.sources.find(s => s.id === selectedSourceId);
 
-  // Pointer event handlers for Canvas interaction
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clickX = ((e.clientX - rect.left) / rect.width) * 100;
-    const clickY = ((e.clientY - rect.top) / rect.height) * 100;
+  // Interactive Drag & Resize
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, mode: typeof dragMode = 'move') => {
+    if (isProgram || !selectedSource || selectedSource.locked) return;
+    if (e.button !== 0) return; // Only primary click
+    e.stopPropagation();
 
-    // Check if clicked near resize handle of selected source
-    if (selectedSource && !selectedSource.locked) {
-      const t = selectedSource.transform;
-      const brDist = Math.hypot(clickX - (t.x + t.width), clickY - (t.y + t.height));
-      if (brDist < 4) {
-        setIsDragging(true);
-        setDragMode('resize-br');
-        setDragStart({
-          mouseX: clickX,
-          mouseY: clickY,
-          initialX: t.x,
-          initialY: t.y,
-          initialW: t.width,
-          initialH: t.height
-        });
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-        return;
-      }
-    }
-
-    // Hit test sources from top (highest zIndex) to bottom
-    const sorted = [...scene.sources]
-      .filter(s => s.visible && !s.locked)
-      .sort((a, b) => b.transform.zIndex - a.transform.zIndex);
-
-    let hitSource: SourceItem | null = null;
-    for (const src of sorted) {
-      const t = src.transform;
-      if (clickX >= t.x && clickX <= t.x + t.width && clickY >= t.y && clickY <= t.y + t.height) {
-        hitSource = src;
-        break;
-      }
-    }
-
-    if (hitSource) {
-      onSelectSource(hitSource.id);
-      setIsDragging(true);
-      setDragMode('move');
-      setDragStart({
-        mouseX: clickX,
-        mouseY: clickY,
-        initialX: hitSource.transform.x,
-        initialY: hitSource.transform.y,
-        initialW: hitSource.transform.width,
-        initialH: hitSource.transform.height
-      });
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    } else {
-      onSelectSource(null);
-    }
+    setIsDragging(true);
+    setDragMode(mode);
+    setDragStart({
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initialX: selectedSource.transform.x,
+      initialY: selectedSource.transform.y,
+      initialW: selectedSource.transform.width,
+      initialH: selectedSource.transform.height
+    });
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging || !dragStart || !selectedSourceId || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const currentX = ((e.clientX - rect.left) / rect.width) * 100;
-    const currentY = ((e.clientY - rect.top) / rect.height) * 100;
+  const handlePointerMove = useCallback((e: PointerEvent) => {
+    if (!isDragging || !dragStart || !selectedSource || !containerRef.current) return;
 
-    const deltaX = currentX - dragStart.mouseX;
-    const deltaY = currentY - dragStart.mouseY;
+    const rect = containerRef.current.getBoundingClientRect();
+    const deltaXPercent = ((e.clientX - dragStart.mouseX) / rect.width) * 100;
+    const deltaYPercent = ((e.clientY - dragStart.mouseY) / rect.height) * 100;
 
     if (dragMode === 'move') {
-      const newX = Math.max(0, Math.min(100 - dragStart.initialW, dragStart.initialX + deltaX));
-      const newY = Math.max(0, Math.min(100 - dragStart.initialH, dragStart.initialY + deltaY));
-      onUpdateSourceTransform(selectedSourceId, {
-        x: Math.round(newX * 10) / 10,
-        y: Math.round(newY * 10) / 10
-      });
-    } else if (dragMode === 'resize-br') {
-      const newW = Math.max(10, Math.min(100 - dragStart.initialX, dragStart.initialW + deltaX));
-      const newH = Math.max(8, Math.min(100 - dragStart.initialY, dragStart.initialH + deltaY));
-      onUpdateSourceTransform(selectedSourceId, {
-        width: Math.round(newW * 10) / 10,
-        height: Math.round(newH * 10) / 10
-      });
-    }
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDragging) {
-      setIsDragging(false);
-      setDragStart(null);
-      try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        // pointer capture release
+      const newX = Math.max(0, Math.min(100 - dragStart.initialW, dragStart.initialX + deltaXPercent));
+      const newY = Math.max(0, Math.min(100 - dragStart.initialH, dragStart.initialY + deltaYPercent));
+      onUpdateSourceTransform(selectedSource.id, { x: newX, y: newY });
+    } else if (dragMode === 'se') {
+      const newW = Math.max(10, Math.min(100 - dragStart.initialX, dragStart.initialW + deltaXPercent));
+      const newH = Math.max(10, Math.min(100 - dragStart.initialY, dragStart.initialH + deltaYPercent));
+      onUpdateSourceTransform(selectedSource.id, { width: newW, height: newH });
+    } else if (dragMode === 'nw') {
+      const newX = dragStart.initialX + deltaXPercent;
+      const newY = dragStart.initialY + deltaYPercent;
+      const newW = dragStart.initialW - deltaXPercent;
+      const newH = dragStart.initialH - deltaYPercent;
+      if (newW > 10 && newH > 10 && newX >= 0 && newY >= 0) {
+        onUpdateSourceTransform(selectedSource.id, { x: newX, y: newY, width: newW, height: newH });
       }
+    } else if (dragMode === 'e') {
+      const newW = Math.max(10, Math.min(100 - dragStart.initialX, dragStart.initialW + deltaXPercent));
+      onUpdateSourceTransform(selectedSource.id, { width: newW });
+    } else if (dragMode === 's') {
+      const newH = Math.max(10, Math.min(100 - dragStart.initialY, dragStart.initialH + deltaYPercent));
+      onUpdateSourceTransform(selectedSource.id, { height: newH });
     }
-  };
+  }, [isDragging, dragStart, selectedSource, dragMode, onUpdateSourceTransform]);
+
+  const handlePointerUp = useCallback(() => {
+    setIsDragging(false);
+    setDragStart(null);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+    }
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isDragging, handlePointerMove, handlePointerUp]);
 
   return (
-    <div className="flex flex-col h-full bg-neutral-900/40 rounded-xl border border-neutral-800 overflow-hidden">
-      {/* Canvas Top Bar */}
-      <div className="h-10 px-4 border-b border-neutral-800/80 bg-neutral-900/90 flex items-center justify-between text-xs text-neutral-400 select-none">
-        <div className="flex items-center gap-2 font-mono">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" />
-          <span className="text-neutral-200 font-semibold">{scene.name}</span>
-          <span className="text-neutral-500">· 1920x1080 60FPS</span>
+    <div className="flex-1 flex flex-col h-full bg-[#181921] overflow-hidden select-none font-sans">
+      {/* Studio Monitor Label if in Studio Mode */}
+      {isProgram !== undefined && (
+        <div className={`h-6 px-3 flex items-center justify-between text-[11px] font-bold tracking-wider uppercase border-b border-[#2b2d3a] ${
+          isProgram ? 'bg-red-950/60 text-red-400' : 'bg-[#15161c] text-neutral-300'
+        }`}>
+          <span>{isProgram ? '● PROGRAM (LIVE)' : 'PREVIEW'}</span>
+          <span className="text-[10px] text-neutral-400 font-mono">1920x1080 (60 fps)</span>
         </div>
+      )}
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setShowSafeGuides(!showSafeGuides)}
-            className={`p-1.5 rounded transition-colors ${
-              showSafeGuides ? 'bg-neutral-800 text-rose-400' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800'
-            }`}
-            title="Toggle Rule of Thirds & Broadcast Safe Areas"
-          >
-            <Grid className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={onToggleCamera}
-            className={`px-2 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors ${
-              isCameraActive ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/50' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>{isCameraActive ? 'Camera ON' : 'Start Camera'}</span>
-          </button>
-          <button
-            onClick={onToggleScreen}
-            className={`px-2 py-1 rounded text-xs font-medium flex items-center gap-1.5 transition-colors ${
-              isScreenActive ? 'bg-sky-950/80 text-sky-300 border border-sky-700/50' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
-            }`}
-          >
-            <Monitor className="w-3.5 h-3.5" />
-            <span>{isScreenActive ? 'Screen ON' : 'Share Screen'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Viewport Container */}
-      <div className="flex-1 p-3 flex items-center justify-center bg-black/80 relative overflow-hidden">
-        <div
-          ref={containerRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          className="relative aspect-video max-w-full max-h-full w-full shadow-2xl rounded-lg overflow-hidden border border-neutral-800 bg-neutral-950 cursor-crosshair touch-none"
-        >
-          {/* Main Rendering Canvas */}
+      {/* Main Canvas Viewport with OBS Diagonal Hatch Background (Matches Reference 2 & 4) */}
+      <div
+        ref={containerRef}
+        onClick={() => onSelectSource(null)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (onContextMenu) onContextMenu(e, selectedSourceId);
+        }}
+        className="flex-1 relative flex items-center justify-center overflow-hidden p-3"
+        style={{
+          backgroundColor: '#14151a',
+          backgroundImage: 'repeating-linear-gradient(45deg, #181922, #181922 10px, #1f212c 10px, #1f212c 20px)'
+        }}
+      >
+        {/* Aspect Ratio 16:9 Canvas Container */}
+        <div className="relative aspect-video max-h-full max-w-full w-full bg-black shadow-2xl border border-[#303342] overflow-hidden">
+          {/* Main Rendering HTML5 Canvas */}
           <canvas
             ref={canvasRef}
+            width={1920}
+            height={1080}
             className="w-full h-full object-contain block"
           />
 
-          {/* Safe Area Guides Overlay */}
-          {showSafeGuides && (
-            <div className="absolute inset-0 pointer-events-none border border-neutral-700/30">
-              {/* 90% Action Safe */}
-              <div className="absolute inset-[5%] border border-dashed border-amber-500/40 pointer-events-none" />
-              {/* 80% Title Safe */}
-              <div className="absolute inset-[10%] border border-dotted border-emerald-500/40 pointer-events-none" />
-              {/* Rule of Thirds */}
-              <div className="absolute top-1/3 left-0 right-0 border-t border-neutral-500/20" />
-              <div className="absolute top-2/3 left-0 right-0 border-t border-neutral-500/20" />
-              <div className="absolute left-1/3 top-0 bottom-0 border-l border-neutral-500/20" />
-              <div className="absolute left-2/3 top-0 bottom-0 border-l border-neutral-500/20" />
-              <div className="absolute top-2 left-2 text-[10px] font-mono text-neutral-400 bg-black/60 px-1.5 py-0.5 rounded">
-                Title Safe (80%) / Action Safe (90%)
+          {/* Interactive Red Transform Bounding Box with 8 grab handles and alignment guide (Reference 2) */}
+          {!isProgram && selectedSource && selectedSource.visible && (
+            <div
+              style={{
+                left: `${selectedSource.transform.x}%`,
+                top: `${selectedSource.transform.y}%`,
+                width: `${selectedSource.transform.width}%`,
+                height: `${selectedSource.transform.height}%`,
+                transform: `rotate(${selectedSource.transform.rotation}deg)`
+              }}
+              onPointerDown={(e) => handlePointerDown(e, 'move')}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (onContextMenu) onContextMenu(e, selectedSource.id);
+              }}
+              className="absolute border-2 border-red-500 cursor-move pointer-events-auto"
+            >
+              {/* Alignment pixel marker (Matches "662 px" marker in Reference 2) */}
+              <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-red-600/90 text-white font-mono text-[10px] font-bold rounded-xs shadow-md whitespace-nowrap pointer-events-none">
+                {Math.round((selectedSource.transform.width / 100) * 1920)} px
               </div>
+
+              {/* Center Crosshair Marker */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-80">
+                <div className="w-3 h-0.5 bg-red-500" />
+                <div className="h-3 w-0.5 bg-red-500 absolute" />
+              </div>
+
+              {/* 8 Grab Handles (Corners + Edges) */}
+              {!selectedSource.locked && (
+                <>
+                  {/* NW Corner */}
+                  <div
+                    onPointerDown={(e) => handlePointerDown(e, 'nw')}
+                    className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-red-600 rounded-xs cursor-nwse-resize z-20"
+                  />
+                  {/* NE Corner */}
+                  <div
+                    onPointerDown={(e) => handlePointerDown(e, 'se')}
+                    className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-red-600 rounded-xs cursor-nesw-resize z-20"
+                  />
+                  {/* SW Corner */}
+                  <div
+                    onPointerDown={(e) => handlePointerDown(e, 'se')}
+                    className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-red-600 rounded-xs cursor-nesw-resize z-20"
+                  />
+                  {/* SE Corner */}
+                  <div
+                    onPointerDown={(e) => handlePointerDown(e, 'se')}
+                    className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-red-600 rounded-xs cursor-nwse-resize z-20"
+                  />
+
+                  {/* N Edge */}
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2.5 h-2 bg-white border border-red-600 rounded-xs cursor-ns-resize z-20" />
+                  {/* S Edge */}
+                  <div
+                    onPointerDown={(e) => handlePointerDown(e, 's')}
+                    className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2.5 h-2 bg-white border border-red-600 rounded-xs cursor-ns-resize z-20"
+                  />
+                  {/* E Edge */}
+                  <div
+                    onPointerDown={(e) => handlePointerDown(e, 'e')}
+                    className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-2.5 bg-white border border-red-600 rounded-xs cursor-ew-resize z-20"
+                  />
+                  {/* W Edge */}
+                  <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2.5 bg-white border border-red-600 rounded-xs cursor-ew-resize z-20" />
+                </>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Quick Action Footer */}
-      {selectedSource && (
-        <div className="h-9 px-4 bg-neutral-950/90 border-t border-neutral-800/80 flex items-center justify-between text-xs text-neutral-300">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-rose-400">{selectedSource.name}</span>
-            <span className="font-mono text-neutral-500 tabular-nums">
-              X: {selectedSource.transform.x}% · Y: {selectedSource.transform.y}% · W: {selectedSource.transform.width}% · H: {selectedSource.transform.height}%
-            </span>
-          </div>
+      {/* Source Quick Action Toolbar directly beneath canvas (Matches Reference 2 & 3) */}
+      {!isProgram && (
+        <div className="h-8 bg-[#14151b] border-t border-[#2b2d3a] px-3 flex items-center justify-between text-xs text-neutral-300">
           <div className="flex items-center gap-2">
+            {/* Source Name with Icon */}
+            {selectedSource ? (
+              <div className="flex items-center gap-1.5 font-semibold text-white mr-2">
+                {selectedSource.type === 'camera' && <Video className="w-3.5 h-3.5 text-blue-400" />}
+                {selectedSource.type === 'screen' && <Monitor className="w-3.5 h-3.5 text-emerald-400" />}
+                {selectedSource.type === 'demo_game' && <Globe className="w-3.5 h-3.5 text-indigo-400" />}
+                {selectedSource.type === 'text' && <Type className="w-3.5 h-3.5 text-amber-400" />}
+                {selectedSource.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-pink-400" />}
+                <span>{selectedSource.name}</span>
+              </div>
+            ) : (
+              <span className="text-neutral-500 italic mr-2">No source selected</span>
+            )}
+
+            {/* Properties Button (Reference 2) */}
             <button
-              onClick={() => onUpdateSourceTransform(selectedSource.id, { x: 68, y: 60, width: 28, height: 32 })}
-              className="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[11px] font-medium transition-colors"
+              onClick={onOpenProperties}
+              disabled={!selectedSource}
+              className="h-6 px-2.5 bg-[#242632] hover:bg-[#303342] border border-[#343746] rounded flex items-center gap-1 text-[11px] disabled:opacity-30 disabled:hover:bg-[#242632]"
             >
-              Reset PIP Position
+              <Settings className="w-3 h-3 text-neutral-400" />
+              <span>Properties</span>
+            </button>
+
+            {/* Filters Button (Reference 2) */}
+            <button
+              onClick={onOpenProperties}
+              disabled={!selectedSource}
+              className="h-6 px-2.5 bg-[#242632] hover:bg-[#303342] border border-[#343746] rounded flex items-center gap-1 text-[11px] disabled:opacity-30"
+            >
+              <Sliders className="w-3 h-3 text-neutral-400" />
+              <span>Filters</span>
+            </button>
+
+            {/* Interact Button (Reference 2) */}
+            <button
+              className="h-6 px-2.5 bg-[#242632] hover:bg-[#303342] border border-[#343746] rounded flex items-center gap-1 text-[11px]"
+            >
+              <MousePointer className="w-3 h-3 text-neutral-400" />
+              <span>Interact</span>
+            </button>
+
+            {/* Refresh Button (Reference 2) */}
+            <button
+              title="Refresh Source"
+              className="h-6 px-2 bg-[#242632] hover:bg-[#303342] border border-[#343746] rounded flex items-center text-[11px]"
+            >
+              <RefreshCw className="w-3 h-3 text-neutral-400" />
+            </button>
+          </div>
+
+          {/* Media timeline scrubber if selected source is media / game (Reference 3) */}
+          {selectedSource?.type === 'demo_game' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsPlayingMedia(!isPlayingMedia)}
+                className="hover:text-white"
+              >
+                {isPlayingMedia ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="11"
+                value={mediaTime}
+                onChange={(e) => setMediaTime(Number(e.target.value))}
+                className="w-28 accent-[#2b66ff] h-1"
+              />
+              <span className="font-mono text-[10px] text-neutral-400">
+                00:00:0{mediaTime} / -00:00:03
+              </span>
+            </div>
+          )}
+
+          {/* Quick Hardware Camera / Screen Ingestion Toggles */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onToggleCamera}
+              className={`h-6 px-2 rounded text-[11px] font-medium flex items-center gap-1 border transition-colors ${
+                isCameraActive
+                  ? 'bg-blue-600/30 border-blue-500 text-blue-300'
+                  : 'bg-[#242632] border-[#343746] text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Camera className="w-3 h-3" />
+              <span>{isCameraActive ? 'Cam ON' : 'Start Cam'}</span>
+            </button>
+
+            <button
+              onClick={onToggleScreen}
+              className={`h-6 px-2 rounded text-[11px] font-medium flex items-center gap-1 border transition-colors ${
+                isScreenActive
+                  ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
+                  : 'bg-[#242632] border-[#343746] text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Monitor className="w-3 h-3" />
+              <span>{isScreenActive ? 'Display ON' : 'Capture Display'}</span>
             </button>
           </div>
         </div>

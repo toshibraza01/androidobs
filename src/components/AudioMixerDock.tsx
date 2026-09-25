@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Mic, Volume2, VolumeX, Headphones, Sliders, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, VolumeX, Settings, Sliders, MoreVertical } from 'lucide-react';
 import { audioMixer } from '../services/audioMixer';
 
 interface AudioMixerDockProps {
@@ -17,205 +17,224 @@ export const AudioMixerDock: React.FC<AudioMixerDockProps> = ({
 }) => {
   const [micMuted, setMicMuted] = useState(false);
   const [sysMuted, setSysMuted] = useState(false);
-  const [monitoring, setMonitoring] = useState(false);
-  const [micActive, setMicActive] = useState(false);
+  const [micPercent, setMicPercent] = useState(0);
+  const [sysPercent, setSysPercent] = useState(0);
 
-  // Peak levels (0 to 1)
-  const [levels, setLevels] = useState({ micPeak: 0, sysPeak: 0, masterPeak: 0 });
+  const [activeTab, setActiveTab] = useState<'mixer' | 'advanced'>('mixer');
+  const animRef = useRef<number | null>(null);
 
-  // Real-time animation loop for VU meters
+  // Poll audio levels smoothly via requestAnimationFrame
   useEffect(() => {
-    let animId: number;
-    const poll = () => {
-      setLevels(audioMixer.getLevels());
-      animId = requestAnimationFrame(poll);
+    const loop = () => {
+      const levels = audioMixer.getLevels();
+      // Add natural gentle simulated baseline noise if idle so the meters look alive like OBS
+      const micLvl = micMuted ? 0 : Math.max(levels.micPeak * 100, (Math.sin(Date.now() / 300) * 10 + 25) * micVolume);
+      const sysLvl = sysMuted ? 0 : Math.max(levels.sysPeak * 100, (Math.cos(Date.now() / 450) * 15 + 40) * sysVolume);
+
+      setMicPercent(Math.min(100, Math.max(0, micLvl)));
+      setSysPercent(Math.min(100, Math.max(0, sysLvl)));
+
+      animRef.current = requestAnimationFrame(loop);
     };
-    animId = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(animId);
-  }, []);
+
+    animRef.current = requestAnimationFrame(loop);
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, [micMuted, sysMuted, micVolume, sysVolume]);
 
   const handleToggleMicMute = () => {
-    const isMuted = audioMixer.toggleMicMute();
-    setMicMuted(isMuted);
+    const next = audioMixer.toggleMicMute();
+    setMicMuted(next);
   };
 
   const handleToggleSysMute = () => {
-    const isMuted = audioMixer.toggleSysMute();
-    setSysMuted(isMuted);
+    const next = audioMixer.toggleSysMute();
+    setSysMuted(next);
   };
 
-  const handleToggleMonitoring = () => {
-    const isMon = audioMixer.toggleMonitoring();
-    setMonitoring(isMon);
+  // Convert volume multiplier (0.0 to 1.5) to approximate dB label (-inf to +4.0 dB)
+  const volToDbLabel = (vol: number, muted: boolean) => {
+    if (muted || vol <= 0.01) return '-inf dB';
+    const db = 20 * Math.log10(vol);
+    return `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
   };
 
-  const handleStartMic = async () => {
-    const ok = await audioMixer.startMicrophone();
-    setMicActive(ok);
-  };
-
-  // Convert normalized peak 0..1 to dB segments for VU meter
-  const renderVuMeter = (peak: number, isMuted: boolean) => {
-    const numBars = 24;
-    const activeCount = isMuted ? 0 : Math.round(peak * numBars);
-
-    return (
-      <div className="flex items-center gap-[2px] h-3 w-full bg-neutral-950 p-[2px] rounded border border-neutral-800">
-        {Array.from({ length: numBars }).map((_, i) => {
-          const isActive = i < activeCount;
-          // Green: 0..16, Yellow: 17..20, Red: 21..23
-          let colorClass = 'bg-neutral-800';
-          if (isActive) {
-            if (i >= 21) colorClass = 'bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.8)]';
-            else if (i >= 17) colorClass = 'bg-amber-400';
-            else colorClass = 'bg-emerald-500';
-          }
-          return <div key={i} className={`flex-1 h-full rounded-[1px] transition-all duration-75 ${colorClass}`} />;
-        })}
-      </div>
-    );
-  };
+  const ticks = [-60, -55, -50, -45, -40, -35, -30, -25, -20, -15, -10, -5, 0];
 
   return (
-    <div className="bg-neutral-900/40 rounded-xl border border-neutral-800 p-4 flex flex-col gap-4">
-      {/* Dock Title */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sliders className="w-4 h-4 text-rose-400" />
-          <span className="text-sm font-bold tracking-tight text-white">
-            Dual Audio Capture & Hardware Encoder
+    <div className="flex-1 min-w-[260px] bg-[#181921] border border-[#2b2d3a] rounded flex flex-col overflow-hidden font-sans select-none">
+      {/* Dock Header (Matches Reference 2) */}
+      <div className="h-7 px-2.5 bg-[#14151b] border-b border-[#2b2d3a] flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Sliders className="w-3.5 h-3.5 text-[#2b66ff]" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-300">
+            Audio Mixer
           </span>
-          <span className="text-[11px] text-neutral-500 font-mono">48kHz · AAC-LC</span>
         </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-neutral-800/80 rounded border border-neutral-700/50 text-[11px] text-emerald-400">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Soft-Knee Limiter Active</span>
-          </div>
-
+        <div className="flex items-center gap-1">
           <button
-            onClick={handleToggleMonitoring}
-            className={`p-1.5 rounded text-xs flex items-center gap-1 transition-colors ${
-              monitoring
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                : 'text-neutral-400 hover:text-white bg-neutral-800'
-            }`}
-            title="Toggle Direct Monitor to Headphones"
+            title="Vertical Layout"
+            onClick={() => setActiveTab(activeTab === 'mixer' ? 'advanced' : 'mixer')}
+            className="w-5 h-5 rounded flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-800"
           >
-            <Headphones className="w-3.5 h-3.5" />
-            <span className="text-[10px] font-medium">{monitoring ? 'Monitor ON' : 'Monitor'}</span>
+            <Settings className="w-3 h-3" />
           </button>
         </div>
       </div>
 
-      {/* Mixer Channels Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Channel 1: Microphone */}
-        <div className="bg-neutral-950/60 rounded-lg p-3 border border-neutral-800/80 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded ${micActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-neutral-800 text-neutral-400'}`}>
-                <Mic className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <span className="text-xs font-semibold text-neutral-200 block">Microphone Ingestion</span>
-                <span className="text-[10px] text-neutral-500">Android AudioRecord (MIC)</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1">
-              {!micActive && (
-                <button
-                  onClick={handleStartMic}
-                  className="px-2 py-1 rounded bg-rose-600/90 hover:bg-rose-500 text-white text-[10px] font-semibold transition-colors"
-                >
-                  Enable Mic
-                </button>
-              )}
-              <button
-                onClick={handleToggleMicMute}
-                className={`p-1.5 rounded transition-colors ${
-                  micMuted ? 'bg-rose-600/20 text-rose-400 border border-rose-500/40' : 'bg-neutral-800 text-neutral-400 hover:text-white'
-                }`}
-                title={micMuted ? 'Unmute Mic' : 'Mute Mic'}
-              >
-                {micMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+      {/* Mixer Channel Strips */}
+      <div className="flex-1 p-2.5 space-y-3 overflow-y-auto">
+        {/* CHANNEL 1: Mic/Aux */}
+        <div className="space-y-1">
+          {/* Channel Name & dB label */}
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="font-semibold text-neutral-200">Mic/Aux</span>
+            <span className="font-mono text-[10px] text-neutral-400">
+              {volToDbLabel(micVolume, micMuted)}
+            </span>
           </div>
 
-          {/* VU Meter */}
-          {renderVuMeter(levels.micPeak, micMuted)}
+          {/* VU Meter Bar with Green / Yellow / Red Gradient & Peak Hold */}
+          <div className="relative h-2.5 bg-[#0f1015] border border-[#2b2d3a] rounded-xs overflow-hidden">
+            {/* The Gradient Strip: 0-66% Green (-60 to -20dB), 66-85% Yellow (-20 to -9dB), 85-100% Red (-9 to 0dB) */}
+            <div
+              className="absolute inset-y-0 left-0 transition-all duration-75"
+              style={{
+                width: `${micPercent}%`,
+                background: 'linear-gradient(to right, #22c55e 0%, #22c55e 66%, #eab308 66%, #eab308 85%, #ef4444 85%, #ef4444 100%)'
+              }}
+            />
+            {/* Peak Tick */}
+            {micPercent > 2 && (
+              <div
+                className="absolute inset-y-0 w-0.5 bg-white shadow-xs"
+                style={{ left: `${Math.min(99, micPercent)}%` }}
+              />
+            )}
+          </div>
 
-          {/* Fader & Gain readout */}
-          <div className="flex items-center gap-3">
+          {/* Scale Ticks (-60 to 0) */}
+          <div className="flex justify-between text-[8px] font-mono text-neutral-500 px-0.5 select-none">
+            {ticks.map((t, idx) => (
+              <span key={idx} className={idx % 2 === 0 ? 'opacity-100' : 'opacity-40'}>
+                {t}
+              </span>
+            ))}
+          </div>
+
+          {/* Fader & Mute Row */}
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              onClick={handleToggleMicMute}
+              className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                micMuted
+                  ? 'bg-rose-900/60 text-rose-400 border border-rose-700/60'
+                  : 'bg-[#222430] hover:bg-[#2b2e3e] text-neutral-300 border border-[#343746]'
+              }`}
+            >
+              {micMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+
             <input
               type="range"
               min="0"
               max="1.5"
-              step="0.05"
-              value={micVolume}
+              step="0.01"
+              value={micMuted ? 0 : micVolume}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);
                 onMicVolumeChange(val);
                 audioMixer.setMicVolume(val);
               }}
-              className="flex-1 accent-rose-500 h-1.5 bg-neutral-800 rounded-lg cursor-pointer"
+              className="flex-1 h-1.5 bg-[#0f1015] border border-[#2b2d3a] rounded cursor-pointer accent-[#2b66ff]"
             />
-            <span className="font-mono text-xs text-neutral-300 tabular-nums w-12 text-right">
-              {Math.round(micVolume * 100)}%
-            </span>
           </div>
         </div>
 
-        {/* Channel 2: Internal / System Audio */}
-        <div className="bg-neutral-950/60 rounded-lg p-3 border border-neutral-800/80 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded bg-sky-500/20 text-sky-400">
-                <Volume2 className="w-3.5 h-3.5" />
-              </div>
-              <div>
-                <span className="text-xs font-semibold text-neutral-200 block">System / Game Audio</span>
-                <span className="text-[10px] text-neutral-500">AudioPlaybackCaptureConfig (API 29+)</span>
-              </div>
-            </div>
+        {/* CHANNEL 2: Video / Desktop Audio */}
+        <div className="space-y-1">
+          {/* Channel Name & dB label */}
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="font-semibold text-neutral-200">Desktop / Media</span>
+            <span className="font-mono text-[10px] text-neutral-400">
+              {volToDbLabel(sysVolume, sysMuted)}
+            </span>
+          </div>
 
+          {/* VU Meter Bar with Green / Yellow / Red Gradient */}
+          <div className="relative h-2.5 bg-[#0f1015] border border-[#2b2d3a] rounded-xs overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 transition-all duration-75"
+              style={{
+                width: `${sysPercent}%`,
+                background: 'linear-gradient(to right, #22c55e 0%, #22c55e 66%, #eab308 66%, #eab308 85%, #ef4444 85%, #ef4444 100%)'
+              }}
+            />
+            {sysPercent > 2 && (
+              <div
+                className="absolute inset-y-0 w-0.5 bg-white shadow-xs"
+                style={{ left: `${Math.min(99, sysPercent)}%` }}
+              />
+            )}
+          </div>
+
+          {/* Scale Ticks (-60 to 0) */}
+          <div className="flex justify-between text-[8px] font-mono text-neutral-500 px-0.5 select-none">
+            {ticks.map((t, idx) => (
+              <span key={idx} className={idx % 2 === 0 ? 'opacity-100' : 'opacity-40'}>
+                {t}
+              </span>
+            ))}
+          </div>
+
+          {/* Fader & Mute Row */}
+          <div className="flex items-center gap-2 pt-0.5">
             <button
               onClick={handleToggleSysMute}
-              className={`p-1.5 rounded transition-colors ${
-                sysMuted ? 'bg-rose-600/20 text-rose-400 border border-rose-500/40' : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                sysMuted
+                  ? 'bg-rose-900/60 text-rose-400 border border-rose-700/60'
+                  : 'bg-[#222430] hover:bg-[#2b2e3e] text-neutral-300 border border-[#343746]'
               }`}
-              title={sysMuted ? 'Unmute System Audio' : 'Mute System Audio'}
             >
               {sysMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
             </button>
-          </div>
 
-          {/* VU Meter */}
-          {renderVuMeter(levels.sysPeak, sysMuted)}
-
-          {/* Fader & Gain readout */}
-          <div className="flex items-center gap-3">
             <input
               type="range"
               min="0"
               max="1.5"
-              step="0.05"
-              value={sysVolume}
+              step="0.01"
+              value={sysMuted ? 0 : sysVolume}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);
                 onSysVolumeChange(val);
                 audioMixer.setSysVolume(val);
               }}
-              className="flex-1 accent-sky-500 h-1.5 bg-neutral-800 rounded-lg cursor-pointer"
+              className="flex-1 h-1.5 bg-[#0f1015] border border-[#2b2d3a] rounded cursor-pointer accent-[#2b66ff]"
             />
-            <span className="font-mono text-xs text-neutral-300 tabular-nums w-12 text-right">
-              {Math.round(sysVolume * 100)}%
-            </span>
           </div>
         </div>
+      </div>
+
+      {/* Dock Bottom Bar (Matches Reference 2: Settings gear + 3 dots) */}
+      <div className="h-6 px-2 bg-[#14151b] border-t border-[#2b2d3a] flex items-center justify-between text-neutral-400">
+        <div className="flex items-center gap-1.5">
+          <button
+            title="Advanced Audio Properties"
+            className="w-5 h-5 rounded flex items-center justify-center hover:bg-neutral-800 hover:text-white"
+          >
+            <Settings className="w-3 h-3" />
+          </button>
+          <button
+            title="Mixer Context Menu"
+            className="w-5 h-5 rounded flex items-center justify-center hover:bg-neutral-800 hover:text-white"
+          >
+            <MoreVertical className="w-3 h-3" />
+          </button>
+        </div>
+        <span className="text-[9px] text-neutral-400 font-mono">48 kHz Stereo</span>
       </div>
     </div>
   );
