@@ -232,21 +232,43 @@ export const BuildApkModal: React.FC<BuildApkModalProps> = ({ isOpen, onClose })
               <div className="p-3.5 rounded-xl bg-neutral-950 border border-neutral-800 flex items-start gap-3">
                 <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1">
-                  <span className="font-bold text-white">Automated Cloud Build for toshibraza01/firsttestapk</span>
+                  <span className="font-bold text-white">Connected Repository: toshibraza01/androidobs</span>
                   <p className="text-neutral-400 text-xs leading-relaxed">
-                    The project includes <code className="font-mono text-emerald-400">.github/workflows/build-apk.yml</code>. Push the code to <code className="font-mono text-white">toshibraza01/firsttestapk</code> to trigger GitHub Actions to compile the APK automatically.
+                    Your repository is connected at <code className="font-mono text-emerald-400">https://github.com/toshibraza01/androidobs</code>. The GitHub Actions workflow file <code className="font-mono text-white">.github/workflows/build-apk.yml</code> builds the APK using GitHub's Ubuntu runners.
                   </p>
                 </div>
               </div>
 
-              {/* Quick Push Commands for toshibraza01/firsttestapk */}
+              {/* Direct Actions Link */}
+              <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold text-emerald-300 text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    GitHub Actions Workflows
+                  </span>
+                  <span className="text-[11px] text-neutral-400 font-mono">
+                    https://github.com/toshibraza01/androidobs/actions
+                  </span>
+                </div>
+                <a
+                  href="https://github.com/toshibraza01/androidobs/actions"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1.5 transition-colors text-xs shadow-md shadow-emerald-950/40"
+                >
+                  <span>Open Actions Tab</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              {/* Quick Push Commands if needed */}
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between text-neutral-400 font-medium text-[11px]">
-                  <span>Push to https://github.com/toshibraza01/firsttestapk.git</span>
+                  <span>Git Sync Commands for toshibraza01/androidobs</span>
                   <button
                     onClick={() =>
                       copyToClipboard(
-                        `git init\ngit branch -M main\ngit remote add origin https://github.com/toshibraza01/firsttestapk.git\ngit add .\ngit commit -m "feat: setup OBS Mobile Android project and APK build workflow"\ngit push -u origin main --force`,
+                        `git remote set-url origin https://github.com/toshibraza01/androidobs.git\ngit add .\ngit commit -m "fix: update GitHub Actions workflow for Android APK build"\ngit push origin main`,
                         'push_commands'
                       )
                     }
@@ -257,29 +279,11 @@ export const BuildApkModal: React.FC<BuildApkModalProps> = ({ isOpen, onClose })
                   </button>
                 </div>
                 <pre className="p-3 bg-neutral-950 border border-neutral-800 rounded-lg font-mono text-emerald-300 text-[11px] overflow-x-auto leading-relaxed">
-{`git init
-git branch -M main
-git remote add origin https://github.com/toshibraza01/firsttestapk.git
+{`git remote set-url origin https://github.com/toshibraza01/androidobs.git
 git add .
-git commit -m "feat: setup OBS Mobile Android project and APK build workflow"
-git push -u origin main --force`}
+git commit -m "fix: update GitHub Actions workflow for Android APK build"
+git push origin main`}
                 </pre>
-              </div>
-
-              <div className="p-3 rounded-lg bg-neutral-950/80 border border-neutral-800 flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="font-medium text-white text-xs">View Cloud Workflow & Download APK</span>
-                  <span className="text-[11px] text-neutral-500 font-mono">https://github.com/toshibraza01/firsttestapk/actions</span>
-                </div>
-                <a
-                  href="https://github.com/toshibraza01/firsttestapk/actions"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white font-medium flex items-center gap-1.5 transition-colors text-xs border border-neutral-700"
-                >
-                  <span>Open Actions Tab</span>
-                  <ExternalLink className="w-3.5 h-3.5 text-neutral-400" />
-                </a>
               </div>
 
               <div className="flex flex-col gap-1.5 mt-1">

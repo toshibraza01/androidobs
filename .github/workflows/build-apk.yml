@@ -21,14 +21,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK & NDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 11076708
-
-      - name: Install NDK and CMake
+      - name: Accept Android Licenses & Setup NDK
         run: |
+          yes | sdkmanager --licenses || true
           sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Build Debug APK with Gradle
         run: |
@@ -36,13 +35,13 @@ jobs:
             cd android-project
           fi
           chmod +x ./gradlew || true
-          ./gradlew assembleDebug --stacktrace || gradle assembleDebug --stacktrace
+          gradle assembleDebug --stacktrace || ./gradlew assembleDebug --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OBS-Mobile-Debug-APK
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            android-project/app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/*.apk
+            android-project/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
