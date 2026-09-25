@@ -310,13 +310,12 @@ jobs:
             yes | sdkmanager --licenses || true
           fi
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
       - name: Build Debug APK with Gradle
         run: |
           if [ -d "android-project" ] && [ -f "android-project/build.gradle.kts" ]; then
             cd android-project
-          fi
-          if [ ! -f "./gradlew" ] || [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
-            gradle wrapper --gradle-version 8.4 || true
           fi
           chmod +x ./gradlew || true
           ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
@@ -353,13 +352,12 @@ jobs:
             yes | sdkmanager --licenses || true
           fi
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
       - name: Build Debug APK with Gradle
         run: |
           if [ -d "android-project" ] && [ -f "android-project/build.gradle.kts" ]; then
             cd android-project
-          fi
-          if [ ! -f "./gradlew" ] || [ ! -f "./gradle/wrapper/gradle-wrapper.jar" ]; then
-            gradle wrapper --gradle-version 8.4 || true
           fi
           chmod +x ./gradlew || true
           ./gradlew assembleDebug --stacktrace --no-daemon || gradle assembleDebug --stacktrace --no-daemon
