@@ -1,0 +1,10 @@
+{
+  "name": "OBS Mobile - Broadcast Studio & Android Architecture Suite",
+  "description": "Production-grade OBS Mobile live streaming suite and architectural workbench with real-time video compositing, dual audio mixer, RTMP/FLV streaming pipeline, and Android Kotlin source inspector.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
